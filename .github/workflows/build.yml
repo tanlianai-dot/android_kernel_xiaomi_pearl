@@ -1,4 +1,4 @@
-name: 红米Note12T Pro 专属内核(GKI+SukiSU Ultra+SUSFS)
+name: 红米Note12T Pro GKI+SukiSU Ultra+SUSFS
 on:
   workflow_dispatch:
 
@@ -6,30 +6,34 @@ jobs:
   build:
     runs-on: ubuntu-22.04
     steps:
-      # 拉取你的pearl原厂内核源码
       - uses: actions/checkout@v4
         with:
           fetch-depth: 1
 
-      # 安装编译依赖
+      # 安装依赖
       - name: 安装编译环境
         run: sudo apt update -y && sudo apt install -y bc bison build-essential curl flex git libssl-dev lzop make zip
 
       # 谷歌官方编译器（正确域名，100%可访问）
-      - name: 下载Clang编译器
+      - name: 下载Clang
         run: git clone https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86 --depth 1 clang
-      - name: 下载GCC编译器
+      - name: 下载GCC
         run: git clone https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9 --depth 1 gcc
 
-      # 内置SukiSU Ultra 内核Root补丁（修补boot同款核心代码）
+      # ==========================
+      # 核心修复：SukiSU Ultra 官方正确集成（无文件夹错误）
+      # ==========================
       - name: 内置SukiSU Ultra
         run: |
           git clone https://github.com/SukiSU-Ultra/SukiSU-Ultra.git --depth 1 sukisu
-          mkdir -p drivers/ksu
-          cp -r sukisu/KernelSU/* drivers/ksu/
+          cd sukisu
+          bash integrate.sh ../
+          cd ..
           echo "CONFIG_KSU=y" >> arch/arm64/configs/pearl_defconfig
 
-      # 内置SUSFS 5.10 GKI专用补丁
+      # ==========================
+      # SUSFS 正确集成
+      # ==========================
       - name: 内置SUSFS
         run: |
           git clone https://gitlab.com/simonpunk/susfs4ksu.git --depth 1 susfs
@@ -37,8 +41,8 @@ jobs:
           echo "CONFIG_SUSFS=y" >> arch/arm64/configs/pearl_defconfig
           echo "CONFIG_SUSFS_LOG=y" >> arch/arm64/configs/pearl_defconfig
 
-      # 编译pearl专属内核
-      - name: 编译内核
+      # 编译内核
+      - name: 开始编译
         run: |
           export ARCH=arm64
           export CC=$GITHUB_WORKSPACE/clang/clang-r458507/bin/clang
@@ -53,10 +57,10 @@ jobs:
           cp out/arch/arm64/boot/Image.gz ak3/
           sed -i "s/device.name1=.*/device.name1=pearl/" ak3/anykernel.sh
           sed -i "s/device.name2=.*/device.name2=Redmi Note 12T Pro/" ak3/anykernel.sh
-          cd ak3 && zip -r9 pearl-ultra-kernel.zip *
+          cd ak3 && zip -r9 pearl-gki-kernel.zip *
 
       # 上传成品
       - uses: actions/upload-artifact@v4
         with:
-          name: pearl-ak3-sukisu-susfs
-          path: ak3/pearl-ultra-kernel.zip
+          name: pearl-ak3-final
+          path: ak3/pearl-gki-kernel.zip
