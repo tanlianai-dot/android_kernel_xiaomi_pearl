@@ -14,19 +14,25 @@ jobs:
       - name: 安装编译环境
         run: sudo apt update -y && sudo apt install -y bc bison build-essential curl flex git libssl-dev lzop make zip
 
-      # 谷歌官方编译器（100%可访问）
+      # 谷歌官方编译器
       - name: 下载Clang编译器
         run: git clone https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86 --depth 1 clang
       - name: 下载GCC编译器
         run: git clone https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9 --depth 1 gcc
 
       # ==========================
-      # 仅保留：SUSFS 内核补丁
+      # 已修复：删除报错的错误代码，使用SUSFS官方正确路径
       # ==========================
       - name: 内置SUSFS
         run: |
           git clone https://gitlab.com/simonpunk/susfs4ksu.git --depth 1 susfs
-          cp -nR susfs/kernel/* ./
+          # 创建对应目录
+          mkdir -p drivers/susfs
+          mkdir -p include/linux
+          # 复制正确的文件（无kernel文件夹）
+          cp -r susfs/drivers/susfs/* drivers/susfs/
+          cp -r susfs/include/linux/* include/linux/
+          # 添加内核配置
           echo "CONFIG_SUSFS=y" >> arch/arm64/configs/pearl_defconfig
           echo "CONFIG_SUSFS_LOG=y" >> arch/arm64/configs/pearl_defconfig
 
