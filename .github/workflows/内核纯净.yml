@@ -1,0 +1,55 @@
+name: 红米Note12T Pro 纯净GKI+SUSFS
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      # 安装编译依赖
+      - name: 安装编译环境
+        run: sudo apt update -y && sudo apt install -y bc bison build-essential curl flex git libssl-dev lzop make zip
+
+      # 谷歌官方编译器（100%可访问）
+      - name: 下载Clang编译器
+        run: git clone https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86 --depth 1 clang
+      - name: 下载GCC编译器
+        run: git clone https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9 --depth 1 gcc
+
+      # ==========================
+      # 仅保留：SUSFS 内核补丁
+      # ==========================
+      - name: 内置SUSFS
+        run: |
+          git clone https://gitlab.com/simonpunk/susfs4ksu.git --depth 1 susfs
+          cp -nR susfs/kernel/* ./
+          echo "CONFIG_SUSFS=y" >> arch/arm64/configs/pearl_defconfig
+          echo "CONFIG_SUSFS_LOG=y" >> arch/arm64/configs/pearl_defconfig
+
+      # 编译原生GKI内核
+      - name: 开始编译
+        run: |
+          export ARCH=arm64
+          export CC=$GITHUB_WORKSPACE/clang/clang-r458507/bin/clang
+          export CROSS_COMPILE=$GITHUB_WORKSPACE/gcc/bin/aarch64-linux-android-
+          make O=out pearl_defconfig
+          make -j$(nproc) O=out
+
+      # 打包AK3卡刷包
+      - name: 打包AnyKernel3
+        run: |
+          git clone https://github.com/osm0sis/AnyKernel3.git --depth 1 ak3
+          cp out/arch/arm64/boot/Image.gz ak3/
+          sed -i "s/device.name1=.*/device.name1=pearl/" ak3/anykernel.sh
+          sed -i "s/device.name2=.*/device.name2=Redmi Note 12T Pro/" ak3/anykernel.sh
+          cd ak3 && zip -r9 pearl-gki-susfs.zip *
+
+      # 上传成品
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pearl-gki-susfs
+          path: ak3/pearl-gki-susfs.zip
