@@ -1,4 +1,4 @@
-name: 红米Note12T Pro 纯净AK3内核（GKI+SukiSU+SUSFS）
+name: 红米Note12T Pro (pearl) GKI+SukiSU+SUSFS
 on:
   workflow_dispatch:
 
@@ -6,54 +6,53 @@ jobs:
   build:
     runs-on: ubuntu-22.04
     steps:
-      - name: 拉取pearl原厂内核源码
+      - name: 拉取原厂pearl内核源码
         uses: actions/checkout@v4
         with:
           fetch-depth: 1
 
-      - name: 配置编译环境
+      - name: 安装编译依赖
         run: |
-          sudo apt update && sudo apt install -y bc bison build-essential ccache curl flex g++-multilib gcc-multilib git git-lfs gnupg gperf lib32ncurses5-dev lib32readline-dev lib32z1-dev liblz4-tool libncurses5-dev libsdl1.2-dev libssl-dev libxml2-utils lzop zip zlib1g-dev
-          git clone https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9 gcc --depth 1
-          git clone https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/arm/arm-linux-androideabi-4.9 gcc32 --depth 1
-          git clone https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86 clang --depth 1
+          sudo apt update -y
+          sudo apt install -y bc bison build-essential ccache curl flex gcc-multilib git libssl-dev make lzop zip
 
-      # 修复版：SukiSU Ultra 标准集成（无目录覆盖冲突）
-      - name: 集成 SukiSU Ultra Root
+      - name: 下载编译工具链
         run: |
-          git clone https://github.com/SukiSU-Ultra/SukiSU-Ultra.git --depth=1 ksu
-          cd ksu
-          # 使用官方脚本一键集成，绝对不报错
-          bash setup.sh
-          cd ..
+          git clone https://github.com/sooti/aarch64-linux-android-4.9.git --depth=1 gcc
+          git clone https://github.com/sooti/clang-r458507.git --depth=1 clang
 
-      # 修复版：SUSFS 标准补丁（适配5.10 GKI）
-      - name: 集成 SUSFS 补丁
+      - name: 集成 SukiSU Ultra (无冲突版)
         run: |
-          git clone https://github.com/zeroXone-two/susfs4ksu.git --depth=1 susfs
-          cp -af susfs/kernel/* ./
+          git clone https://github.com/SukiSU-Ultra/SukiSU-Ultra.git --depth=1 sukisu
+          mkdir -p drivers/ksu
+          cp -r sukisu/ksu/* drivers/ksu/
+          echo "CONFIG_KSU=y" >> arch/arm64/configs/pearl_defconfig
+
+      - name: 集成 SUSFS (适配5.10 GKI)
+        run: |
+          git clone https://gitlab.com/simonpunk/susfs4ksu.git --depth=1 susfs
+          cp -r susfs/kernel/drivers/susfs drivers/ || true
           echo "CONFIG_SUSFS=y" >> arch/arm64/configs/pearl_defconfig
           echo "CONFIG_SUSFS_LOG=y" >> arch/arm64/configs/pearl_defconfig
 
-      - name: 编译内核
+      - name: 开始编译内核
         run: |
           export ARCH=arm64
-          export SUBARCH=arm64
-          export PATH=$GITHUB_WORKSPACE/clang/r458507/bin:$GITHUB_WORKSPACE/gcc/bin:$GITHUB_WORKSPACE/gcc32/bin:$PATH
-          make O=out ARCH=arm64 pearl_defconfig
-          make -j$(nproc) O=out CC=clang CLANG_TRIPLE=aarch64-linux-gnu- CROSS_COMPILE=aarch64-linux-android-
+          export CC=$GITHUB_WORKSPACE/clang/bin/clang
+          export CROSS_COMPILE=$GITHUB_WORKSPACE/gcc/bin/aarch64-linux-android-
+          make O=out pearl_defconfig
+          make -j$(nproc) O=out
 
-      - name: 打包 AnyKernel3 卡刷包
+      - name: 打包 AnyKernel3
         run: |
-          git clone https://github.com/osm0sis/AnyKernel3.git --depth=1
-          cp out/arch/arm64/boot/Image.gz AnyKernel3/
-          sed -i 's/device.name1=.*/device.name1=pearl/' AnyKernel3/anykernel.sh
-          sed -i 's/device.name2=.*/device.name2=Redmi Note 12T Pro/' AnyKernel3/anykernel.sh
-          cd AnyKernel3
-          zip -r9 pearl-gki-sukisu-susfs.zip *
+          git clone https://github.com/osm0sis/AnyKernel3.git --depth=1 ak3
+          cp out/arch/arm64/boot/Image.gz ak3/
+          sed -i "s/device.name1=.*/device.name1=pearl/" ak3/anykernel.sh
+          sed -i "s/device.name2=.*/device.name2=Redmi Note 12T Pro/" ak3/anykernel.sh
+          cd ak3 && zip -r9 pearl-gki-sukisu-susfs.zip *
 
-      - name: 上传最终AK3包
+      - name: 上传成品
         uses: actions/upload-artifact@v4
         with:
-          name: Redmi-Note12T-Pro-AK3
-          path: AnyKernel3/pearl-gki-sukisu-susfs.zip
+          name: pearl-ak3-kernel
+          path: ak3/pearl-gki-sukisu-susfs.zip
