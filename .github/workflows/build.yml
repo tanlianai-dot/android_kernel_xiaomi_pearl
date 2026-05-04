@@ -1,4 +1,4 @@
-name: 红米Note12T Pro (pearl) GKI+SukiSU+SUSFS
+name: 红米Note12T Pro 内置SukiSU Ultra+SUSFS
 on:
   workflow_dispatch:
 
@@ -6,39 +6,43 @@ jobs:
   build:
     runs-on: ubuntu-22.04
     steps:
-      - name: 拉取pearl原厂内核源码
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 1
 
-      - name: 安装编译依赖
-        run: |
-          sudo apt update -y
-          sudo apt install -y bc bison build-essential curl flex git libssl-dev lzop make zip
+      - name: 安装编译环境
+        run: sudo apt update -y && sudo apt install -y bc bison build-essential curl flex git libssl-dev lzop make zip
 
-      - name: 下载官方Clang编译器
+      - name: 下载官方编译器
         run: |
-          git clone https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86 --depth 1 clang
+          git clone https://android.googource.com/platform/prebuilts/clang/host/linux-x86 --depth 1 clang
+          git clone https://android.googource.com/platform/prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9 --depth 1 gcc
 
-      - name: 下载官方GCC编译器
+      # ==============================================
+      # ✅ 核心：内置 SukiSU Ultra 完整内核Root补丁
+      # 直接把修补boot的核心代码编译进内核，和修补boot效果一致
+      # ==============================================
+      - name: 内置 SukiSU Ultra 内核补丁
         run: |
-          git clone https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9 --depth 1 gcc
-
-      - name: 集成SukiSU Ultra
-        run: |
-          git clone https://github.com/SukiSU-Ultra/SukiSU-Ultra.git --depth 1 sukisu
-          mkdir -p drivers/ksu
-          cp -r sukisu/ksu/* drivers/ksu/
+          git clone https://github.com/SukiSU-Ultra/SukiSU-Ultra --depth 1 sukisu
+          cp -r sukisu/KernelSU/drivers/ksu drivers/
+          cp -r sukisu/KernelSU/include/linux/ksu.h include/linux/
           echo "CONFIG_KSU=y" >> arch/arm64/configs/pearl_defconfig
 
-      - name: 集成SUSFS
+      # ==============================================
+      # ✅ 内置 SUSFS 5.10 GKI 内核补丁
+      # ==============================================
+      - name: 内置 SUSFS 内核补丁
         run: |
-          git clone https://gitlab.com/simonpunk/susfs4ksu.git --depth 1 susfs
-          cp -nR susfs/kernel/* ./
+          git clone https://gitlab.com/simonpunk/susfs4ksu --depth 1 susfs
+          cp -r susfs/kernel/drivers/susfs drivers/
           echo "CONFIG_SUSFS=y" >> arch/arm64/configs/pearl_defconfig
           echo "CONFIG_SUSFS_LOG=y" >> arch/arm64/configs/pearl_defconfig
 
-      - name: 编译内核
+      # ==============================================
+      # 编译内核
+      # ==============================================
+      - name: 开始编译
         run: |
           export ARCH=arm64
           export CC=$GITHUB_WORKSPACE/clang/clang-r458507/bin/clang
@@ -46,16 +50,18 @@ jobs:
           make O=out pearl_defconfig
           make -j$(nproc) O=out
 
+      # ==============================================
+      # 打包AK3卡刷包
+      # ==============================================
       - name: 打包AnyKernel3
         run: |
-          git clone https://github.com/osm0sis/AnyKernel3.git --depth 1 ak3
+          git clone https://github.com/osm0sis/AnyKernel3 --depth 1 ak3
           cp out/arch/arm64/boot/Image.gz ak3/
           sed -i "s/device.name1=.*/device.name1=pearl/" ak3/anykernel.sh
           sed -i "s/device.name2=.*/device.name2=Redmi Note 12T Pro/" ak3/anykernel.sh
-          cd ak3 && zip -r9 pearl-kernel.zip *
+          cd ak3 && zip -r9 pearl-ultra-kernel.zip *
 
-      - name: 上传成品
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
-          name: Redmi-Note12T-Pro-AK3
-          path: ak3/pearl-kernel.zip
+          name: pearl-ak3-sukisu-ultra
+          path: ak3/pearl-ultra-kernel.zip
