@@ -1,4 +1,4 @@
-name: 红米Note12T Pro (pearl) 纯净版 GKI+SukiSU+SUSFS
+name: 红米Note12T Pro (pearl) GKI+SukiSU+SUSFS
 on:
   workflow_dispatch:
 
@@ -6,26 +6,24 @@ jobs:
   build:
     runs-on: ubuntu-22.04
     steps:
-      - name: 拉取你的pearl原厂内核源码
+      - name: 拉取pearl原厂内核源码
         uses: actions/checkout@v4
         with:
           fetch-depth: 1
 
-      - name: 安装基础编译依赖
+      - name: 安装编译依赖
         run: |
           sudo apt update -y
           sudo apt install -y bc bison build-essential curl flex git libssl-dev lzop make zip
 
-      # ==================== 官方工具链（100%可访问，无任何报错）====================
-      - name: 下载AOSP官方Clang编译器
+      - name: 下载官方Clang编译器
         run: |
           git clone https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86 --depth 1 clang
-      
-      - name: 下载AOSP官方GCC编译器
+
+      - name: 下载官方GCC编译器
         run: |
           git clone https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9 --depth 1 gcc
 
-      # ==================== SukiSU Ultra（官方仓库，可访问）====================
       - name: 集成SukiSU Ultra
         run: |
           git clone https://github.com/SukiSU-Ultra/SukiSU-Ultra.git --depth 1 sukisu
@@ -33,16 +31,14 @@ jobs:
           cp -r sukisu/ksu/* drivers/ksu/
           echo "CONFIG_KSU=y" >> arch/arm64/configs/pearl_defconfig
 
-      # ==================== SUSFS 官方补丁（GitLab公开，可访问）====================
-      - name: 集成SUSFS补丁
+      - name: 集成SUSFS
         run: |
           git clone https://gitlab.com/simonpunk/susfs4ksu.git --depth 1 susfs
           cp -nR susfs/kernel/* ./
           echo "CONFIG_SUSFS=y" >> arch/arm64/configs/pearl_defconfig
           echo "CONFIG_SUSFS_LOG=y" >> arch/arm64/configs/pearl_defconfig
 
-      # ==================== 编译内核 ====================
-      - name: 开始编译
+      - name: 编译内核
         run: |
           export ARCH=arm64
           export CC=$GITHUB_WORKSPACE/clang/clang-r458507/bin/clang
@@ -50,7 +46,6 @@ jobs:
           make O=out pearl_defconfig
           make -j$(nproc) O=out
 
-      # ==================== 打包AK3卡刷包 ====================
       - name: 打包AnyKernel3
         run: |
           git clone https://github.com/osm0sis/AnyKernel3.git --depth 1 ak3
@@ -59,8 +54,8 @@ jobs:
           sed -i "s/device.name2=.*/device.name2=Redmi Note 12T Pro/" ak3/anykernel.sh
           cd ak3 && zip -r9 pearl-kernel.zip *
 
-      - name: 上传最终成品
-        uses: upload-artifact@v4
+      - name: 上传成品
+        uses: actions/upload-artifact@v4
         with:
           name: Redmi-Note12T-Pro-AK3
           path: ak3/pearl-kernel.zip
