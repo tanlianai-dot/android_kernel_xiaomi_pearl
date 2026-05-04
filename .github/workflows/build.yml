@@ -1,0 +1,93 @@
+name: 红米Note12T Pro 全功能内核（SukiSU+SUSFS+ZRAM+BBG）
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: 拉取pearl内核源码
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: 配置编译环境（适配5.10 GKI）
+        run: |
+          sudo apt update && sudo apt install -y bc bison build-essential ccache curl flex g++-multilib gcc-multilib git git-lfs gnupg gperf imagemagick lib32ncurses5-dev lib32readline-dev lib32z1-dev liblz4-tool libncurses5 libncurses5-dev libsdl1.2-dev libssl-dev libwxgtk3.0-gtk3-dev libxml2 libxml2-utils lzop pngcrush rsync schedtool squashfs-tools xsltproc zip zlib1g-dev
+          # 下载适配5.10的编译工具链
+          git clone https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9 gcc --depth 1
+          git clone https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/arm/arm-linux-androideabi-4.9 gcc32 --depth 1
+          git clone https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86 clang --depth 1
+
+      - name: 1. 集成SukiSU Ultra + KPM功能
+        run: |
+          # 下载最新版SukiSU Ultra源码
+          git clone https://github.com/SukiSU-Ultra/SukiSU-Ultra.git --depth 1 sukisu
+          # 应用内核补丁
+          cp -r sukisu/kernel/* ./
+          cp -r sukisu/ksu/* drivers/
+          # 在defconfig中启用SukiSU和KPM
+          echo "CONFIG_KSU=y" >> arch/arm64/configs/pearl_defconfig
+          echo "CONFIG_KSU_MANUAL_HOOK=y" >> arch/arm64/configs/pearl_defconfig
+          echo "CONFIG_KPM=y" >> arch/arm64/configs/pearl_defconfig  # 启用KPM模块支持
+
+      - name: 2. 集成SUSFS（默认启用，不禁用）
+        run: |
+          # 下载适配5.10内核的SUSFS4KSU源码
+          git clone https://github.com/zeroXone-two/susfs4ksu.git --depth 1 susfs
+          # 应用SUSFS内核补丁
+          cd susfs
+          patch -p1 < patches/50_add_susfs_in_kernel.patch -d $GITHUB_WORKSPACE
+          # 在内核配置中启用SUSFS
+          echo "CONFIG_SUSFS=y" >> $GITHUB_WORKSPACE/arch/arm64/configs/pearl_defconfig
+          echo "CONFIG_SUSFS_LOG=y" >> $GITHUB_WORKSPACE/arch/arm64/configs/pearl_defconfig
+          cd $GITHUB_WORKSPACE
+
+      - name: 3. 启用ZRAM增强算法
+        run: |
+          # 在内核配置中开启ZRAM优化选项
+          echo "CONFIG_ZRAM=y" >> arch/arm64/configs/pearl_defconfig
+          echo "CONFIG_ZSMALLOC=y" >> arch/arm64/configs/pearl_defconfig
+          echo "CONFIG_ZRAM_LZ4_COMPRESS=y" >> arch/arm64/configs/pearl_defconfig
+          echo "CONFIG_ZRAM_MULTI_STREAM=y" >> arch/arm64/configs/pearl_defconfig  # 多流压缩增强
+          echo "CONFIG_ZRAM_WRITEBACK=y" >> arch/arm64/configs/pearl_defconfig    # 写回优化
+          echo "CONFIG_ZRAM_DEBUG=y" >> arch/arm64/configs/pearl_defconfig
+
+      - name: 4. 集成BBG防格机补丁
+        run: |
+          # 下载适配5.10 GKI的BBG防格机补丁
+          git clone https://github.com/chenzyzx/BBG-Anti-Format.git --depth 1 bbg
+          # 应用补丁
+          cd bbg
+          patch -p1 < anti_format.patch -d $GITHUB_WORKSPACE
+          # 启用防格机配置
+          echo "CONFIG_BBG_ANTI_FORMAT=y" >> $GITHUB_WORKSPACE/arch/arm64/configs/pearl_defconfig
+          cd $GITHUB_WORKSPACE
+
+      - name: 编译内核（适配pearl设备）
+        run: |
+          export ARCH=arm64
+          export SUBARCH=arm64
+          export PATH=$GITHUB_WORKSPACE/clang/r458507/bin:$GITHUB_WORKSPACE/gcc/bin:$GITHUB_WORKSPACE/gcc32/bin:$PATH
+          # 生成内核配置文件
+          make O=out ARCH=arm64 pearl_defconfig
+          # 启动编译（使用所有CPU核心）
+          make -j$(nproc) O=out ARCH=arm64 CC=clang CLANG_TRIPLE=aarch64-linux-gnu- CROSS_COMPILE=aarch64-linux-android- CROSS_COMPILE_ARM32=arm-linux-androideabi-
+
+      - name: 打包成AnyKernel3格式（可直接刷入）
+        run: |
+          git clone https://github.com/osm0sis/AnyKernel3.git --depth 1
+          # 复制编译好的内核镜像
+          cp out/arch/arm64/boot/Image.gz AnyKernel3/
+          # 适配pearl设备信息
+          sed -i 's/device.name1=.*/device.name1=pearl/' AnyKernel3/anykernel.sh
+          sed -i 's/device.name2=.*/device.name2=Redmi Note 12T Pro/' AnyKernel3/anykernel.sh
+          # 打包为可刷入的zip包
+          cd AnyKernel3
+          zip -r9 pearl-full-kernel.zip *
+
+      - name: 上传编译产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: Redmi-Note12T-Pro-Full-Kernel
+          path: AnyKernel3/pearl-full-kernel.zip
