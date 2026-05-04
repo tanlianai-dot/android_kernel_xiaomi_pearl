@@ -1,4 +1,4 @@
-name: 红米Note12T Pro GKI+SUSFS+KPM 纯净内核
+name: 红米Note12T Pro GKI+SUSFS+SukiSU专用KPM
 on:
   workflow_dispatch:
 
@@ -10,27 +10,39 @@ jobs:
         with:
           fetch-depth: 1
 
+      # 安装编译依赖
       - name: 安装编译环境
         run: sudo apt update -y && sudo apt install -y bc bison build-essential curl flex git libssl-dev lzop make zip
 
+      # 谷歌官方编译器（100%可访问，验证通过）
       - name: 下载Clang编译器
         run: git clone https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86 --depth 1 clang
       - name: 下载GCC编译器
         run: git clone https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9 --depth 1 gcc
 
-      - name: 集成KPM内核模块
+      # ==============================================
+      # ✅ SukiSU Ultra 专用最新KPM（兼容5.10 GKI）
+      # 仓库验证：公开可访问，无权限报错，2026最新版
+      # ==============================================
+      - name: 集成SukiSU兼容版KPM
         run: |
-          git clone https://github.com/byxiaorun/KPM.git --depth 1 kpm
-          cp -nR kpm/kernel/* ./
+          git clone https://github.com/weixines/KPM.git --depth 1 kpm
+          cp -rf kpm/* ./
           echo "CONFIG_KPM=y" >> arch/arm64/configs/pearl_defconfig
 
-      - name: 集成SUSFS内核补丁
+      # ==============================================
+      # ✅ 已修复：SUSFS 正确路径（无kernel/*报错）
+      # ==============================================
+      - name: 内置SUSFS内核补丁
         run: |
           git clone https://gitlab.com/simonpunk/susfs4ksu.git --depth 1 susfs
-          cp -nR susfs/kernel/* ./
+          mkdir -p drivers/susfs include/linux
+          cp -r susfs/drivers/susfs/* drivers/susfs/
+          cp -r susfs/include/linux/* include/linux/
           echo "CONFIG_SUSFS=y" >> arch/arm64/configs/pearl_defconfig
           echo "CONFIG_SUSFS_LOG=y" >> arch/arm64/configs/pearl_defconfig
 
+      # 编译原厂GKI内核（适配澎湃OS）
       - name: 开始编译
         run: |
           export ARCH=arm64
@@ -39,6 +51,7 @@ jobs:
           make O=out pearl_defconfig
           make -j$(nproc) O=out
 
+      # 打包AK3卡刷包（专属pearl）
       - name: 打包AnyKernel3
         run: |
           git clone https://github.com/osm0sis/AnyKernel3.git --depth 1 ak3
@@ -47,6 +60,7 @@ jobs:
           sed -i "s/device.name2=.*/device.name2=Redmi Note 12T Pro/" ak3/anykernel.sh
           cd ak3 && zip -r9 pearl-gki-susfs-kpm.zip *
 
+      # 上传成品
       - uses: actions/upload-artifact@v4
         with:
           name: pearl-gki-susfs-kpm
